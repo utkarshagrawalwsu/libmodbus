@@ -7,6 +7,12 @@
  * http://libmodbus.org/
  */
 
+/*
+ * Copyright © 2017 Utkarsh Agrawal <utkarsh.agrawal@wsu.edu> <uautkarsh@gmail.com>
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
