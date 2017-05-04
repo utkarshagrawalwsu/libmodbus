@@ -126,7 +126,10 @@ enum {
     MODBUS_EXCEPTION_NOT_DEFINED,
     MODBUS_EXCEPTION_GATEWAY_PATH,
     MODBUS_EXCEPTION_GATEWAY_TARGET,
-    MODBUS_EXCEPTION_MAX
+    // SECURE_CODE
+    MODBUS_EXCEPTION_ILLEGAL_SIGNATURE,
+    // SECURE_CODE_ENDS
+    MODBUS_EXCEPTION_MAX,
 };
 
 #define EMBXILFUN  (MODBUS_ENOBASE + MODBUS_EXCEPTION_ILLEGAL_FUNCTION)
@@ -139,14 +142,29 @@ enum {
 #define EMBXMEMPAR (MODBUS_ENOBASE + MODBUS_EXCEPTION_MEMORY_PARITY)
 #define EMBXGPATH  (MODBUS_ENOBASE + MODBUS_EXCEPTION_GATEWAY_PATH)
 #define EMBXGTAR   (MODBUS_ENOBASE + MODBUS_EXCEPTION_GATEWAY_TARGET)
+// SECURE_CODE_STARTS
+#define EMBXSIGN   (MODBUS_ENOBASE + MODBUS_EXCEPTION_ILLEGAL_SIGNATURE)
 
-/* Native libmodbus error codes */
-#define EMBBADCRC  (EMBXGTAR + 1)
-#define EMBBADDATA (EMBXGTAR + 2)
-#define EMBBADEXC  (EMBXGTAR + 3)
-#define EMBUNKEXC  (EMBXGTAR + 4)
-#define EMBMDATA   (EMBXGTAR + 5)
-#define EMBBADSLAVE (EMBXGTAR + 6)
+
+#define EMBBADCRC  (EMBXSIGN + 1)
+#define EMBBADDATA (EMBXSIGN + 2)
+#define EMBBADEXC  (EMBXSIGN + 3)
+#define EMBUNKEXC  (EMBXSIGN + 4)
+#define EMBMDATA   (EMBXSIGN + 5)
+#define EMBBADSLAVE (EMBXSIGN + 6)
+
+
+// ORIGINAL_CODE_COMMENT_STARTS
+// /* Native libmodbus error codes */
+// #define EMBBADCRC  (EMBXGTAR + 1)
+// #define EMBBADDATA (EMBXGTAR + 2)
+// #define EMBBADEXC  (EMBXGTAR + 3)
+// #define EMBUNKEXC  (EMBXGTAR + 4)
+// #define EMBMDATA   (EMBXGTAR + 5)
+// #define EMBBADSLAVE (EMBXGTAR + 6)
+// ORIGINAL_CODE_COMMENT_ENDS
+
+// SECURE_CODE_ENDS
 
 extern const unsigned int libmodbus_version_major;
 extern const unsigned int libmodbus_version_minor;
@@ -281,6 +299,12 @@ MODBUS_API void modbus_set_float_abcd(float f, uint16_t *dest);
 MODBUS_API void modbus_set_float_dcba(float f, uint16_t *dest);
 MODBUS_API void modbus_set_float_badc(float f, uint16_t *dest);
 MODBUS_API void modbus_set_float_cdab(float f, uint16_t *dest);
+
+extern int clientTamper;
+extern int serverTamper;
+
+int updateClientTamper(int disabledOrEnabled);
+int updateServerTamper(int disabledOrEnabled);
 
 #include "modbus-tcp.h"
 #include "modbus-rtu.h"

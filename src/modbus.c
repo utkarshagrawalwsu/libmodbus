@@ -23,6 +23,8 @@
 #include "modbus.h"
 #include "modbus-private.h"
 
+#include <invCtrl.h>
+
 /* Internal use */
 #define MSG_LENGTH_UNDEFINED -1
 
@@ -40,6 +42,9 @@ typedef enum {
     _STEP_META,
     _STEP_DATA
 } _step_t;
+
+int clientTamper = 0;
+int serverTamper = 0;
 
 const char *modbus_strerror(int errnum) {
     switch (errnum) {
@@ -73,9 +78,23 @@ const char *modbus_strerror(int errnum) {
         return "Too many data";
     case EMBBADSLAVE:
         return "Response not from requested slave";
+    // SECURE_CODE_STARTS
+    case EMBXSIGN:
+        return "Invalid signature";
+    // SECURE_CODE_ENDS
     default:
         return strerror(errnum);
     }
+}
+
+int updateClientTamper(int disabledOrEnabled) {
+    clientTamper = disabledOrEnabled == 1 ? 1 : 0;
+    return 0;
+}
+
+int updateServerTamper(int disabledOrEnabled) {
+    serverTamper = disabledOrEnabled == 1 ? 1 : 0;
+    return 0;
 }
 
 void _error_print(modbus_t *ctx, const char *context)
@@ -133,6 +152,20 @@ static unsigned int compute_response_length_from_request(modbus_t *ctx, uint8_t 
 
     switch (req[offset]) {
     case MODBUS_FC_READ_COILS:
+
+    // SECURE_CODE_STARTS
+    {
+        int nb = (req[offset + 3] << 8) | req[offset + 4];
+        length = 2 + (nb / 8) + ((nb % 8) ? 1 : 0) + 128;
+    }
+    break;
+    case MODBUS_FC_WRITE_SINGLE_COIL:
+    {
+        length = 5 + 128;
+    }
+    break;
+    // SECURE_CODE_ENDS
+
     case MODBUS_FC_READ_DISCRETE_INPUTS: {
         /* Header + nb values (code from write_bits) */
         int nb = (req[offset + 3] << 8) | req[offset + 4];
@@ -255,6 +288,11 @@ static uint8_t compute_meta_length_after_function(int function,
     int length;
 
     if (msg_type == MSG_INDICATION) {
+        // SECURE_CODE_STARTS
+        if(function == MODBUS_FC_WRITE_SINGLE_COIL) {
+          length = 4 + 128;
+        } else
+        // SECURE_CODE_ENDS
         if (function <= MODBUS_FC_WRITE_SINGLE_REGISTER) {
             length = 4;
         } else if (function == MODBUS_FC_WRITE_MULTIPLE_COILS ||
@@ -272,6 +310,10 @@ static uint8_t compute_meta_length_after_function(int function,
         /* MSG_CONFIRMATION */
         switch (function) {
         case MODBUS_FC_WRITE_SINGLE_COIL:
+        // SECURE_CODE_STARTS
+          length = 4 + 128;
+          break;
+        // SECURE_CODE_ENDS
         case MODBUS_FC_WRITE_SINGLE_REGISTER:
         case MODBUS_FC_WRITE_MULTIPLE_COILS:
         case MODBUS_FC_WRITE_MULTIPLE_REGISTERS:
@@ -307,7 +349,18 @@ static int compute_data_length_after_meta(modbus_t *ctx, uint8_t *msg,
         default:
             length = 0;
         }
-    } else {
+    } else
+    
+    // SECURE_CODE_STARTS
+    if(function == MODBUS_FC_READ_COILS) {
+      length = msg[ctx->backend->header_length + 1] + 128;
+    } else
+    // if(function == _FC_WRITE_SINGLE_COIL) {
+    //   length = msg[ctx->backend->header_length + 1] + 20;
+    // } else
+    // SECURE_CODE_ENDS
+
+    {
         /* MSG_CONFIRMATION */
         if (function <= MODBUS_FC_READ_INPUT_REGISTERS ||
             function == MODBUS_FC_REPORT_SLAVE_ID ||
@@ -631,31 +684,115 @@ static int check_confirmation(modbus_t *ctx, uint8_t *req,
     return rc;
 }
 
-static int response_io_status(uint8_t *tab_io_status,
-                              int address, int nb,
-                              uint8_t *rsp, int offset)
+// SECURE_CODE_STARTS
+// ADDED TO INVCTRL
+// int getCoilData(int transactionId, int startAddress, int numberOfBits,
+//                 uint8_t* hmac, uint8_t* data ) {
+//   int digestSize = 20;
+//   int totalDataBytes = (numberOfBits / 8) + ((numberOfBits % 8) ? 1 : 0);
+//   int totalTransactionIdBytes = 2;
+
+//   int dataIndex = 0;
+//   int shift = 0;
+//   int byte = 0;
+//   int i;
+
+//   uint8_t currentData = 0;
+  
+//   for (i = startAddress; i < startAddress + numberOfBits; i++) {
+//     switch(i) {
+//       case 0x13:
+//         currentData = 1;
+//         break;
+//     }
+
+//     byte |= currentData << shift;
+//     if (shift == 7) {
+//       data[dataIndex] = byte;
+//       dataIndex++;
+
+//       byte = shift = 0;
+//     } else {
+//       shift++;
+//     }
+//   }
+
+//   if (shift != 0) {
+//     data[dataIndex] = byte;
+//     dataIndex++;
+//   }
+
+//   data[dataIndex] = transactionId >> 8;
+//   data[dataIndex + 1] = transactionId & 0x00ff;
+
+//   char key[] = "wsu";
+//   unsigned char* digest;
+//   digest = HMAC(EVP_sha1(), key, strlen(key), (unsigned char*)data, totalDataBytes + totalTransactionIdBytes, NULL, NULL);
+
+//   for(i = 0; i < digestSize; i++) {
+//     hmac[i] = (uint8_t)digest[i];
+//   }
+
+//   return dataIndex;
+// }
+
+static int secure_response_io_status(int address, int nb,
+                              uint8_t *tab_io_status,
+                              uint8_t *rsp, int offset,
+                              int transactionId)
 {
-    int shift = 0;
-    /* Instead of byte (not allowed in Win32) */
-    int one_byte = 0;
-    int i;
+    // int totalBytesRequired = (nb / 8) + ((nb % 8) ? 1 : 0);
+    // int totalTransactionIdBytes = 2;
+    // uint8_t data[totalBytesRequired + totalTransactionIdBytes];
 
-    for (i = address; i < address + nb; i++) {
-        one_byte |= tab_io_status[i] << shift;
-        if (shift == 7) {
-            /* Byte is full */
-            rsp[offset++] = one_byte;
-            one_byte = shift = 0;
-        } else {
-            shift++;
-        }
-    }
+    // int digestSize = 20;
+    // uint8_t hmac[digestSize];
 
-    if (shift != 0)
-        rsp[offset++] = one_byte;
+    // offset = getCoilDataAndSign(transactionId, address, rsp, offset, serverTamper);
+    offset = invCtrl_getDataByCoilAddress(transactionId, address, rsp, offset, serverTamper);
+
+    // int i;
+
+    // for (i = 0; i < totalBytesRequired; i++) {
+    //   rsp[offset] = data[i];
+    //   offset++;
+    // }
+
+    // int rspOffset = offset;
+    // for (i = 0; i < digestSize; i++) {
+    //   rsp[offset] = hmac[i];
+    //   offset++;
+    // }
 
     return offset;
 }
+// SECURE_CODE_ENDS
+
+// static int response_io_status(uint8_t *tab_io_status,
+//                               int address, int nb,
+//                               uint8_t *rsp, int offset)
+// {
+//     int shift = 0;
+//     /* Instead of byte (not allowed in Win32) */
+//     int one_byte = 0;
+//     int i;
+
+//     for (i = address; i < address + nb; i++) {
+//         one_byte |= tab_io_status[i] << shift;
+//         if (shift == 7) {
+//             /* Byte is full */
+//             rsp[offset++] = one_byte;
+//             one_byte = shift = 0;
+//         } else {
+//             shift++;
+//         }
+//     }
+
+//     if (shift != 0)
+//         rsp[offset++] = one_byte;
+
+//     return offset;
+// }
 
 /* Build the exception response */
 static int response_exception(modbus_t *ctx, sft_t *sft,
@@ -747,8 +884,15 @@ int modbus_reply(modbus_t *ctx, const uint8_t *req,
         } else {
             rsp_length = ctx->backend->build_response_basis(&sft, rsp);
             rsp[rsp_length++] = (nb / 8) + ((nb % 8) ? 1 : 0);
-            rsp_length = response_io_status(tab_bits, mapping_address, nb,
-                                            rsp, rsp_length);
+            
+            // rsp_length = response_io_status(tab_bits, mapping_address, nb,
+            //                                 rsp, rsp_length);
+
+            // SECURE_CODE_STARTS
+            rsp_length = secure_response_io_status(address, nb,
+                                            tab_bits,
+                                            rsp, rsp_length, sft.t_id);
+            // SECURE_CODE_ENDS
         }
     }
         break;
@@ -796,11 +940,25 @@ int modbus_reply(modbus_t *ctx, const uint8_t *req,
                 address);
         } else {
             int data = (req[offset + 3] << 8) + req[offset + 4];
-
             if (data == 0xFF00 || data == 0x0) {
                 mb_mapping->tab_bits[mapping_address] = data ? ON : OFF;
                 memcpy(rsp, req, req_length);
                 rsp_length = req_length;
+
+                // SECURE_CODE_STARTS
+                int coilAddress = (req[offset + 1] << 8) + req[offset + 2];
+                int transactionId = (req[0] << 8) + req[1];
+                // int status = setCoilDataAndVerifySign(transactionId, coilAddress, data == 0xFF00 ? 0x01: 0x00, (uint8_t *) &req[offset + 5]);
+                int status = invCtrl_setCoilData(transactionId, coilAddress, data == 0xFF00 ? 0x01: 0x00, (uint8_t *) &req[offset + 5]);
+                if(status == -1) {
+                    printf("Invalid Signature Detected\n");
+                    rsp_length = response_exception(
+                        ctx, &sft,
+                        MODBUS_EXCEPTION_ILLEGAL_SIGNATURE, rsp, FALSE,
+                        "Illegal signature detected\n");
+                }
+                // SECURE_CODE_ENDS
+
             } else {
                 rsp_length = response_exception(
                     ctx, &sft,
@@ -1055,6 +1213,20 @@ static int read_io_status(modbus_t *ctx, int function,
 
         offset = ctx->backend->header_length + 2;
         offset_end = offset + rc;
+
+        // SECURE_CODE_STARTS
+        // int isValid = verifyHmac(rsp[0], rsp[1], offset_end-offset, &rsp[offset + 1], );
+        int transactionId = (req[0] << 8) + req[1];
+        // int isValid = verifyCoilData(transactionId, rsp[offset], &rsp[offset + 1], 128);
+        int isValid = invCtrl_verifyCoilData(transactionId, rsp[offset], &rsp[offset + 1], 128);
+        
+        if(isValid == -1) {
+            printf("Signature is not valid\n");
+            return -1;
+        }
+        printf("Signature is valid\n");
+        //SECURE_CODE_ENDS
+
         for (i = offset; i < offset_end; i++) {
             /* Shift reg hi_byte to temp */
             temp = rsp[i];
@@ -1231,7 +1403,14 @@ static int write_single(modbus_t *ctx, int function, int addr, int value)
 {
     int rc;
     int req_length;
-    uint8_t req[_MIN_REQ_LENGTH];
+
+    // SECURE_CODE_STARTS COMMENTED_CODE_STARTS
+    // uint8_t req[_MIN_REQ_LENGTH];
+    // SECURE_CODE_ENDS COMMENTED_CODE_ENDS
+    
+    // SECURE_CODE_STARTS
+    uint8_t req[_MIN_REQ_LENGTH + 128];
+    // SECURE_CODE_ENDS
 
     if (ctx == NULL) {
         errno = EINVAL;
@@ -1239,6 +1418,12 @@ static int write_single(modbus_t *ctx, int function, int addr, int value)
     }
 
     req_length = ctx->backend->build_request_basis(ctx, function, addr, value, req);
+
+    // SECURE_CODE_STARTS
+    // req_length = addHmac(req[0], req[1], req[req_length - 2], req[req_length - 1], req, req_length);
+    // req_length = signRequest(req[0], req[1], req[req_length - 2], req[req_length - 1], req, req_length, clientTamper);
+    req_length = invCtrl_signCoilValue(req[0], req[1], req[req_length - 2], req[req_length - 1], req, req_length, clientTamper);
+    // SECURE_CODE_ENDS
 
     rc = send_msg(ctx, req, req_length);
     if (rc > 0) {
